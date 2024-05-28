@@ -1,0 +1,290 @@
+############# Import all packages #############
+
+import yfinance as yf
+import pandas as pd
+import plotly.graph_objects as go
+import plotly.express as px
+from plotly.subplots import make_subplots
+import pandas_ta as ta
+import datetime as dt
+import numpy as np
+
+
+
+############# Define company Ticker and download Share Price Data from Yahoo Finance #############
+
+company = 'AAPL' # e.g. AAPL or TSLA etc
+start = dt.datetime(2020, 1, 1)
+end = dt.datetime.now()
+# data = yf.download(tickers=company, period='50d', interval='1d')
+data = yf.download(tickers=company, start=start) # add e.g. start and/or end = "2024-01-31"
+
+# Show data
+# data
+
+
+
+
+############# Plot Share Price #############
+
+fig1 = go.Figure(data=[go.Scatter(x=data.index, y=data["Adj Close"])])
+
+fig1.update_layout(
+    autosize=False,
+    width=1100,
+    height=550,
+    template='plotly_dark',
+    title=company + ' Time Series Chart',
+    title_x=0.5,
+    yaxis_title= company + ' Share Price in US$',
+    xaxis_title='Date',
+    xaxis_rangeslider_visible=True
+)
+
+fig1.update_xaxes(
+    rangeslider_visible=True,
+    rangeselector=dict(font=dict(color="black"),
+        buttons=list([
+            dict(count=1, label="1m", step="month", stepmode="backward"),
+            dict(count=6, label="6m", step="month", stepmode="backward"),
+            dict(count=1, label="YTD", step="year", stepmode="todate"),
+            dict(count=1, label="1y", step="year", stepmode="backward"),
+            dict(step="all")
+        ])
+    ),
+    rangebreaks=[
+        dict(bounds=["sat", "mon"]), #hide weekends
+        dict(values=["2023-12-25", "2024-01-01"])  # hide Christmas, New Year's & other Holidays
+    ]
+)
+
+fig1.show()
+
+
+
+
+############# Extract new data for candlestick chart and calculate englufing pattern #############
+
+dfc = data.filter(['Open','High','Low','Close'], axis=1)
+dfc = dfc.iloc[-100:]
+
+# calculate engulfing pattern
+conditions = [
+    (dfc['Close'] > dfc['Open']) & (dfc['Close'].shift(1) < dfc['Open'].shift(1)) & 
+    (dfc['Close'] > dfc['Open'].shift(1)) & (dfc['Open'] < dfc['Close'].shift(1)),
+    (dfc['Close'] < dfc['Open']) & (dfc['Close'].shift(1) > dfc['Open'].shift(1)) & 
+    (dfc['Open'] > dfc['Close'].shift(1)) & (dfc['Close'] < dfc['Open'].shift(1))
+]
+
+values = [1, -1]
+
+dfc['Engulfing'] = np.select(conditions, values)
+
+# Show data
+# dfc
+
+
+
+
+############# Candlestick Chart for 100 days back + engulfing pattern #############
+
+fig2 = make_subplots(rows=2, cols=1, shared_xaxes=False, row_width=[0.25, 0.75])
+
+fig2.add_trace(go.Candlestick(x=dfc.index,
+                                open=dfc['Open'],
+                                high=dfc['High'],
+                                low=dfc['Low'],
+                                close=dfc['Close'],
+                                showlegend=False),
+              row=1, col=1)
+
+fig2.add_trace(go.Scatter(
+    x=dfc.index,
+    y=dfc['Engulfing'],
+    line=dict(color='#ff9900', width=2),
+    showlegend=False,
+), row=2, col=1)
+
+
+
+fig2.update_layout(
+    autosize=False,
+    width=1100,
+    height=550,
+    template='plotly_dark',
+    title=company + ' Candlestick Chart',
+    title_x=0.5
+)
+
+fig2.update_xaxes(
+    rangeslider_visible=False,
+    rangebreaks=[
+        dict(bounds=["sat", "mon"]), #hide weekends
+        dict(values=["2023-12-25", "2024-01-01"])  # hide Christmas, New Year's & other Holidays
+    ]
+)
+
+# Update xaxis properties
+fig2.update_xaxes(title_text="Date", row=2, col=1)
+
+# Update yaxis properties
+fig2.update_yaxes(title_text=company + ' Share Price in US$', row=1, col=1)
+fig2.update_yaxes(title_text="ENP", row=2, col=1)
+
+fig2.show()
+
+
+
+
+
+############# Calculate Simple Moving Average for X Days (SMAX) and add to dataframe #############
+
+# Extract 'Adj Close' column and convert to DataFrame
+df = data['Adj Close'].to_frame()
+ 
+# Calculate 30- & 100-day Simple Moving Average (SMA)
+df['SMA30'] = df['Adj Close'].rolling(30).mean()
+df['SMA100'] = df['Adj Close'].rolling(100).mean()
+ 
+# Remove NULL values
+df.dropna(inplace=True)
+ 
+# Show data
+# df
+
+
+
+
+
+############# Plot Share Price and Simple Moving Average #############
+
+fig3 = px.line(df, x=df.index, y=df.columns)
+
+fig3.update_layout(
+    autosize=False,
+    width=1100,
+    height=550,
+    template='plotly_dark',
+    title=company + ' Time Series Chart',
+    title_x=0.5,
+    yaxis_title= company + ' Share Price in US$',
+    xaxis_title='Date',
+    xaxis_rangeslider_visible=True
+)
+
+fig3.update_xaxes(
+    rangeslider_visible=False,
+    rangeselector=dict(font=dict(color="black"),
+        buttons=list([
+            dict(count=1, label="1m", step="month", stepmode="backward"),
+            dict(count=6, label="6m", step="month", stepmode="backward"),
+            dict(count=1, label="YTD", step="year", stepmode="todate"),
+            dict(count=1, label="1y", step="year", stepmode="backward"),
+            dict(step="all")
+        ])
+    )
+)
+
+fig3.show()
+
+
+
+
+
+############# Calculate relative strength index (RSI) using pandas #############
+
+# Extract 'Adj Close' column and convert to DataFrame
+dfrsi = data['Adj Close'].to_frame()
+
+# Calculate Price Differences
+dfrsi['Diff'] = dfrsi.diff(1)
+
+# Calculate Avg. Gains/Losses
+dfrsi['Gain'] = dfrsi['Diff'].clip(lower=0).round(2)
+dfrsi['Loss'] = dfrsi['Diff'].clip(upper=0).abs().round(2)
+
+# Get initial Averages
+window_length = 14
+dfrsi['avg_gain'] = dfrsi['Gain'].rolling(window=window_length, min_periods=window_length).mean()[:window_length+1]
+dfrsi['avg_loss'] = dfrsi['Loss'].rolling(window=window_length, min_periods=window_length).mean()[:window_length+1]
+
+# Get WMS averages
+# Average Gains
+for i, row in enumerate(dfrsi['avg_gain'].iloc[window_length+1:]):
+    dfrsi['avg_gain'].iloc[i + window_length + 1] =\
+        (dfrsi['avg_gain'].iloc[i + window_length] *
+         (window_length - 1) +
+         dfrsi['Gain'].iloc[i + window_length + 1])\
+        / window_length
+# Average Losses
+for i, row in enumerate(dfrsi['avg_loss'].iloc[window_length+1:]):
+    dfrsi['avg_loss'].iloc[i + window_length + 1] =\
+        (dfrsi['avg_loss'].iloc[i + window_length] *
+         (window_length - 1) +
+         dfrsi['Loss'].iloc[i + window_length + 1])\
+        / window_length
+
+# Calculate RS Values
+dfrsi['RS'] = dfrsi['avg_gain'] / dfrsi['avg_loss']
+
+# Calculate RSI
+dfrsi['RSI'] = 100 - (100 / (1.0 + dfrsi['RS']))
+
+# Show data
+# dfrsi
+
+
+
+
+
+############# Create Graph with RSI (subplot) #############
+
+# Create Figure
+fig4 = make_subplots(rows=2, cols=1, shared_xaxes=False, row_width=[0.25, 0.75])
+
+# Create Candlestick chart for price data
+fig4.add_trace(go.Scatter(
+    x=dfrsi.index,
+    y=dfrsi["Adj Close"],
+    showlegend=False
+), row=1, col=1)
+
+# Make RSI Plot
+fig4.add_trace(go.Scatter(
+    x=dfrsi.index,
+    y=dfrsi['RSI'],
+    line=dict(color='#ff9900', width=2),
+    showlegend=False,
+), row=2, col=1)
+
+# Add upper/lower bounds
+fig4.update_yaxes(range=[-10, 110], row=2, col=1)
+fig4.add_hline(y=0, col=1, row=2, line_color="#666", line_width=2)
+fig4.add_hline(y=100, col=1, row=2, line_color="#666", line_width=2)
+
+# Add overbought/oversold
+fig4.add_hline(y=30, col=1, row=2, line_color='#336699', line_width=2, line_dash='dash')
+fig4.add_hline(y=70, col=1, row=2, line_color='#336699', line_width=2, line_dash='dash')
+
+# Customize Layout
+fig4.update_layout(
+    autosize=False,
+    width=1100,
+    height=550,
+    template='plotly_dark',
+    title=company + ' Relative Strength Index (RSI) Chart',
+    title_x=0.5,
+    xaxis_rangeslider_visible=False
+)
+
+# Update xaxis properties
+fig4.update_xaxes(title_text="Date", row=2, col=1)
+
+# Update yaxis properties
+fig4.update_yaxes(title_text=company + ' Share Price in US$', row=1, col=1)
+fig4.update_yaxes(title_text="RSI", row=2, col=1)
+
+fig4.show()
+
+
+
